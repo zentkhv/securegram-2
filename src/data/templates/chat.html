@@ -1,103 +1,90 @@
 <!DOCTYPE html>
 <html>
 <head>
-    <title>Telegram Web Interface</title>
-    <script src="https://unpkg.com/htmx.org@1.9.6"></script>
-    <script src="https://unpkg.com/htmx.org/dist/ext/ws.js"></script>
-    <style>
-        body {
-            font-family: Arial, sans-serif;
-            max-width: 800px;
-            margin: 0 auto;
-            padding: 20px;
-        }
-        #chat {
-            height: 400px;
-            overflow-y: auto;
-            border: 1px solid #ddd;
-            border-radius: 5px;
-            padding: 15px;
-            margin-bottom: 15px;
-            background: #f9f9f9;
-        }
-        .message {
-            margin-bottom: 10px;
-            padding: 8px 12px;
-            background: white;
-            border-radius: 4px;
-            box-shadow: 0 1px 2px rgba(0,0,0,0.1);
-        }
-        .message small {
-            color: #666;
-            font-size: 0.8em;
-            margin-left: 10px;
-        }
-        #message-form {
-            display: flex;
-            gap: 10px;
-        }
-        #message-input {
-            flex-grow: 1;
-            padding: 10px;
-            border: 1px solid #ddd;
-            border-radius: 4px;
-        }
-        button {
-            padding: 10px 20px;
-            background: #007bff;
-            color: white;
-            border: none;
-            border-radius: 4px;
-            cursor: pointer;
-        }
-        button:hover {
-            background: #0056b3;
-        }
-    </style>
-</head>
-<body>
-    <h1>Telegram Chat Interface</h1>
-
-    <div id="chat" hx-ext="ws" ws-connect="/ws">
-        <div id="messages">
-            <!-- Messages will appear here -->
-        </div>
-    </div>
-
-    <div id="message-form">
-        <input type="text" id="message-input" placeholder="Type your message..." autocomplete="off">
-        <button onclick="sendMessage()">Send</button>
-    </div>
-
+    <title>SecureGram Chat</title>
+    <link rel="stylesheet" href="/static/style.css">
     <script>
-        function sendMessage() {
-            const input = document.getElementById('message-input');
-            if (input.value.trim() !== '') {
-                htmx.find('#chat').send('SEND:' + input.value);
-                input.value = '';
-            }
-        }
+        document.addEventListener('DOMContentLoaded', () => {
+            const ws = new WebSocket(`ws://${window.location.host}/ws`);
+            const messagesContainer = document.getElementById('messages');
+            const messageInput = document.getElementById('message-input');
+            const sendButton = document.getElementById('send-button');
+            const clearButton = document.getElementById('clear-button');
+            const themeToggle = document.getElementById('theme-toggle');
 
-        document.addEventListener('DOMContentLoaded', function() {
-            htmx.on('#chat', 'htmx:wsMessage', function(evt) {
-                const data = JSON.parse(evt.detail.message.substr(4));
-                const messagesDiv = document.getElementById('messages');
-                const messageElement = document.createElement('div');
-                messageElement.className = 'message';
-                messageElement.innerHTML = `
-                    <strong>${data.sender}:</strong> ${data.text}
-                    <small>${new Date(data.time).toLocaleTimeString()}</small>
-                `;
-                messagesDiv.appendChild(messageElement);
-                messagesDiv.scrollTop = messagesDiv.scrollHeight;
+            // Инициализация темы
+            const currentTheme = localStorage.getItem('theme') || 'light';
+            document.documentElement.setAttribute('data-theme', currentTheme);
+            themeToggle.textContent = currentTheme === 'light' ? '🌙 Dark' : '☀️ Light';
+
+            // Обработчик WebSocket
+            ws.onmessage = (event) => {
+                if (event.data === "clear") {
+                    messagesContainer.innerHTML = '';
+                } else {
+                    try {
+                        const message = JSON.parse(event.data);
+                        const messageElement = document.createElement('div');
+                        messageElement.className = `message ${message.type}`;
+                        messageElement.innerHTML = `
+                            <div class="message-header">
+                                <span class="sender">${message.sender}</span>
+                                <span class="timestamp">${message.time} ${message.date}</span>
+                            </div>
+                            <div class="message-content">${message.text}</div>
+                        `;
+                        messagesContainer.appendChild(messageElement);
+                        messagesContainer.scrollTop = messagesContainer.scrollHeight;
+                    } catch (e) {
+                        console.error('Error parsing message:', e);
+                    }
+                }
+            };
+
+            // Отправка сообщения
+            function sendMessage() {
+                const text = messageInput.value.trim();
+                if (text && ws.readyState === WebSocket.OPEN) {
+                    ws.send(`SEND:${text}`);
+                    messageInput.value = '';
+                }
+            }
+
+            sendButton.addEventListener('click', sendMessage);
+            messageInput.addEventListener('keypress', (e) => {
+                if (e.key === 'Enter') sendMessage();
             });
 
-            document.getElementById('message-input').addEventListener('keypress', function(e) {
-                if (e.key === 'Enter') {
-                    sendMessage();
-                }
+            // Очистка чата
+            clearButton.addEventListener('click', () => {
+                ws.send("clear_messages");
+            });
+
+            // Переключение темы
+            themeToggle.addEventListener('click', () => {
+                const newTheme = document.documentElement.getAttribute('data-theme') === 'light' ? 'dark' : 'light';
+                document.documentElement.setAttribute('data-theme', newTheme);
+                localStorage.setItem('theme', newTheme);
+                themeToggle.textContent = newTheme === 'light' ? '🌙 Dark' : '☀️ Light';
             });
         });
     </script>
+</head>
+<body>
+    <div class="container">
+        <header class="chat-header">
+            <h1>Chat with {{ target_user }}</h1>
+            <button id="theme-toggle" class="theme-button">🌙 Dark</button>
+        </header>
+
+        <div id="messages" class="messages-container"></div>
+
+        <div class="chat-controls">
+            <input type="text" id="message-input" placeholder="Type your message...">
+            <button id="send-button">Send</button>
+        </div>
+
+        <button id="clear-button" class="clear-button">Clear Chat</button>
+    </div>
 </body>
 </html>

@@ -1,14 +1,21 @@
 # -*- coding: utf-8 -*-
 from contextlib import asynccontextmanager
-from fastapi import FastAPI, WebSocket, Request
+from fastapi import FastAPI, Request, WebSocket, WebSocketDisconnect
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from pyrogram import Client, filters
 import json
-from src.data.creds import profiles
-from src.config import path
+from datetime import datetime
+import asyncio
 
-# --- Pyrogram Client Setup ---
+from src.config import path
+from src.services.сonnectionManager import ConnectionManager
+from src.data.creds import profiles
+
+# Инициализация менеджера соединений
+manager = ConnectionManager()
+
+# Клиент Telegram
 tg_client = Client(
     "my_account",
     api_id=profiles['one']['api_id'],
@@ -17,62 +24,62 @@ tg_client = Client(
     workdir=path.sessions_path
 )
 
-
-# --- WebSocket Manager ---
-class ConnectionManager:
-    def __init__(self):
-        self.active_connections = []
-
-    async def connect(self, websocket: WebSocket):
-        await websocket.accept()
-        self.active_connections.append(websocket)
-
-    def disconnect(self, websocket: WebSocket):
-        self.active_connections.remove(websocket)
-
-    async def broadcast(self, message: str):
-        for connection in self.active_connections:
-            await connection.send_text(message)
+# Глобальная переменная для целевого пользователя
+target_user_id = None
 
 
-manager = ConnectionManager()
+async def resolve_target_user():
+    """Получаем ID целевого пользователя"""
+    global target_user_id
+    try:
+        user = await tg_client.get_users(profiles['two']['nickname'])
+        target_user_id = user.id
+        print(f"Target user ID resolved: {target_user_id}")
+    except Exception as e:
+        print(f"Failed to resolve target user: {e}")
+        raise
 
 
-# --- Telegram Handlers ---
 @tg_client.on_message(filters.private)
-async def handle_incoming_message(client, message):
-    msg_data = {
-        "sender": message.from_user.first_name,
-        "text": message.text,
-        "time": message.date.isoformat()
-    }
-    await manager.broadcast(f"MSG:{json.dumps(msg_data)}")
+async def handle_telegram_message(client, message):
+    if message.from_user and message.from_user.id == target_user_id:
+        msg_data = {
+            "sender": message.from_user.first_name,
+            "text": message.text,
+            "time": datetime.now().strftime("%H:%M:%S"),
+            "date": datetime.now().strftime("%Y-%m-%d"),
+            "type": "incoming"
+        }
+        await manager.broadcast(json.dumps(msg_data))
 
 
-# --- Lifespan Manager ---
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Startup
+    # Подключаем Telegram клиент
     await tg_client.start()
-    print("Pyrogram client started")
+    print("Telegram client connected")
 
-    yield  # App runs here
+    # Получаем ID целевого пользователя
+    await resolve_target_user()
 
-    # Shutdown
+    yield
+
+    # Отключаем Telegram клиент
     await tg_client.stop()
-    print("Pyrogram client stopped")
+    print("Telegram client disconnected")
 
 
-# --- FastAPI App ---
 app = FastAPI(lifespan=lifespan)
 app.mount("/static", StaticFiles(directory=path.static_path), name="static")
 templates = Jinja2Templates(directory=path.templates_path)
 
 
-# --- Web Routes ---
 @app.get("/")
-async def chat_page(request: Request):
-    return templates.TemplateResponse("chat.html", {"request": request})
+async def get_chat_page(request: Request):
+    return templates.TemplateResponse("chat.html", {
+        "request": request,
+        "target_user": profiles['two']['nickname']
+    })
 
 
 @app.websocket("/ws")
@@ -81,13 +88,24 @@ async def websocket_endpoint(websocket: WebSocket):
     try:
         while True:
             data = await websocket.receive_text()
-            if data.startswith("SEND:"):
-                message = data[5:]
-                await tg_client.send_message(
-                    chat_id=profiles['two']['nickname'],
-                    text=message
-                )
+            if data == "clear_messages":
+                await manager.send_message("clear", websocket)
+            elif data.startswith("SEND:"):
+                message_text = data[5:]
+                await tg_client.send_message(target_user_id, message_text)
+
+                # Эхо-ответ
+                msg_data = {
+                    "sender": "You",
+                    "text": message_text,
+                    "time": datetime.now().strftime("%H:%M:%S"),
+                    "date": datetime.now().strftime("%Y-%m-%d"),
+                    "type": "outgoing"
+                }
+                await manager.send_message(json.dumps(msg_data), websocket)
+    except WebSocketDisconnect:
+        manager.disconnect(websocket)
+        print("Client disconnected")
     except Exception as e:
         print(f"WebSocket error: {e}")
-    finally:
         manager.disconnect(websocket)
