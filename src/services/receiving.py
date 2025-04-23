@@ -7,11 +7,15 @@ from pyrogram import Client, filters
 from src.data.creds import profiles
 from src.config import path
 
-api_id = profiles['one']['api_id']
-api_hash = profiles['one']['api_hash']
-phone_number = profiles['one']['phone']
+receiver = 'two'
+destination = 'one'
 
-destination_name = profiles['two']['nickname']
+
+api_id = profiles[receiver]['api_id']
+api_hash = profiles[receiver]['api_hash']
+phone_number = profiles[receiver]['phone']
+
+destination_name = profiles[destination]['nickname']
 
 # Создаем клиент
 app = Client(

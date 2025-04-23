@@ -7,11 +7,15 @@ from src.data.creds import profiles
 from src.config import path
 
 
-api_id = profiles['one']['api_id']
-api_hash = profiles['one']['api_hash']
-phone_number = profiles['one']['phone']
+transmiter = 'two'
+destination = 'one'
 
-destination_name = profiles['two']['nickname']
+
+api_id = profiles[transmiter]['api_id']
+api_hash = profiles[transmiter]['api_hash']
+phone_number = profiles[transmiter]['phone']
+
+destination_name = profiles[destination]['nickname']
 
 # Создаем клиент
 app = Client(
